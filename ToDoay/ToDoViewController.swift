@@ -20,6 +20,10 @@ class ToDoViewController: UITableViewController {
 
         // Uncomment the following line to display an Edit button in the navigation bar for this view controller.
         // self.navigationItem.rightBarButtonItem = self.editButtonItem
+        
+        if let items = UserDefaults.standard.value(forKey: "ToDoListArray") {
+            itemArray = items as! [String]
+        }
     }
 
     override func didReceiveMemoryWarning() {
@@ -50,6 +54,7 @@ class ToDoViewController: UITableViewController {
             if let text = textField.text {
                 self.itemArray.append(text)
                 self.tableView.reloadData()
+                UserDefaults.standard.set(self.itemArray, forKey: "ToDoListArray")
             }
         }
         alert.addTextField { (alertTextField) in
