@@ -10,7 +10,7 @@ import UIKit
 
 class ToDoViewController: UITableViewController {
 
-    let defaults = UserDefaults.standard
+    let dataFilePath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("Item.plist")
     
     var itemArray = [TaskModel]()
     
@@ -25,9 +25,10 @@ class ToDoViewController: UITableViewController {
         // Uncomment the following line to display an Edit button in the navigation bar for this view controller.
         // self.navigationItem.rightBarButtonItem = self.editButtonItem
         
-        if let items = defaults.array(forKey: "ToDoListArray") as? [TaskModel] {
-            itemArray = items
-        }
+        print(dataFilePath!)
+        
+        loadItems()
+
     }
 
     override func didReceiveMemoryWarning() {
@@ -59,8 +60,8 @@ class ToDoViewController: UITableViewController {
                 let item: TaskModel = TaskModel()
                 item.title = text
                 self.itemArray.append(item)
-                self.tableView.reloadData()
-                self.defaults.set(self.itemArray, forKey: "ToDoListArray")
+                self.saveData()
+
             }
         }
         alert.addTextField { (alertTextField) in
@@ -69,6 +70,31 @@ class ToDoViewController: UITableViewController {
         }
         alert.addAction(action)
         present(alert, animated: true, completion: nil)
+    }
+    
+    func saveData() {
+        let encoder = PropertyListEncoder()
+        do {
+            let data = try encoder.encode(itemArray)
+            try data.write(to: dataFilePath!)
+        } catch {
+            print("Encoding error \(error)")
+        }
+        self.tableView.reloadData()
+    }
+    
+    func loadItems() {
+        
+        if let data = try? Data(contentsOf: dataFilePath!) {
+            do {
+                let decoder = PropertyListDecoder()
+                itemArray = try decoder.decode([TaskModel].self, from: data)
+            } catch {
+                print("Encoding error \(error)")
+            }
+            self.tableView.reloadData()
+        }
+        
     }
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -85,9 +111,13 @@ class ToDoViewController: UITableViewController {
     }
  
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        
         itemArray[indexPath.row].done = !itemArray[indexPath.row].done
+        
         tableView.deselectRow(at: indexPath, animated: true)
-        tableView.reloadData()
+        
+        saveData()
+        
     }
 
     /*
