@@ -7,14 +7,19 @@
 //
 
 import UIKit
+import CoreData
 
 class ToDoViewController: UITableViewController {
 
-    let dataFilePath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("Item.plist")
-    
+    @IBOutlet weak var searchBar: UISearchBar!
     var itemArray = [TaskModel]()
+    var itemCategory: Category? {
+        didSet {
+            loadItems()
+        }
+    }
     
-    var selectedType = ""
+    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -25,9 +30,8 @@ class ToDoViewController: UITableViewController {
         // Uncomment the following line to display an Edit button in the navigation bar for this view controller.
         // self.navigationItem.rightBarButtonItem = self.editButtonItem
         
-        print(dataFilePath!)
-        
-        loadItems()
+        searchBar.delegate = self
+        print(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask))
 
     }
 
@@ -57,8 +61,10 @@ class ToDoViewController: UITableViewController {
         let action = UIAlertAction(title: "Add Item", style: .default) { (action) in
             print(textField.text ?? "")
             if let text = textField.text {
-                let item: TaskModel = TaskModel()
+                let item = TaskModel(context: self.context)
                 item.title = text
+                item.done = false
+                item.parentCategory = self.itemCategory
                 self.itemArray.append(item)
                 self.saveData()
 
@@ -73,29 +79,30 @@ class ToDoViewController: UITableViewController {
     }
     
     func saveData() {
-        let encoder = PropertyListEncoder()
         do {
-            let data = try encoder.encode(itemArray)
-            try data.write(to: dataFilePath!)
+            try context.save()
         } catch {
-            print("Encoding error \(error)")
+            print("Code data saving error \(error)")
         }
         self.tableView.reloadData()
     }
     
-    func loadItems() {
-        
-        if let data = try? Data(contentsOf: dataFilePath!) {
-            do {
-                let decoder = PropertyListDecoder()
-                itemArray = try decoder.decode([TaskModel].self, from: data)
-            } catch {
-                print("Encoding error \(error)")
-            }
-            self.tableView.reloadData()
+    func loadItems(with request: NSFetchRequest<TaskModel> = TaskModel.fetchRequest(), and predicate: NSPredicate? = nil) {
+        let categoryPredicate = NSPredicate(format: "parentCategory.name MATCHES %@", itemCategory!.name!)
+        if let additionalPredicate = predicate {
+            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [categoryPredicate, additionalPredicate])
+        } else{
+            request.predicate = categoryPredicate
         }
         
+        do {
+            itemArray = try context.fetch(request)
+        } catch {
+            print("Error loading data \(error)")
+        }
+        self.tableView.reloadData()
     }
+    
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "todoItemCell", for: indexPath)
@@ -111,11 +118,14 @@ class ToDoViewController: UITableViewController {
     }
  
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        
+
+        tableView.deselectRow(at: indexPath, animated: true)
+
         itemArray[indexPath.row].done = !itemArray[indexPath.row].done
         
-        tableView.deselectRow(at: indexPath, animated: true)
-        
+//        context.delete(itemArray[indexPath.row])
+//        itemArray.remove(at: indexPath.row)
+
         saveData()
         
     }
@@ -166,3 +176,27 @@ class ToDoViewController: UITableViewController {
     */
 
 }
+
+//MARK: - Searchbar methods
+extension ToDoViewController: UISearchBarDelegate {
+    
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        DispatchQueue.main.async {
+            searchBar.resignFirstResponder()
+        }
+        let request : NSFetchRequest<TaskModel> = TaskModel.fetchRequest()
+        let predicate = NSPredicate(format: "title CONTAINS[cd] %@", searchBar.text!)
+        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+        loadItems(with: request, and: predicate)
+    }
+    
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        if searchText.count == 0 {
+            loadItems()
+            DispatchQueue.main.async {
+                searchBar.resignFirstResponder()
+            }
+        }
+    }
+}
+
