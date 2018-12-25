@@ -7,51 +7,62 @@
 //
 
 import UIKit
-import CoreData
+import RealmSwift
+import ChameleonFramework
 
-class ToDoViewController: UITableViewController {
+class ToDoViewController: SwipeTableViewController {
 
     @IBOutlet weak var searchBar: UISearchBar!
-    var itemArray = [TaskModel]()
+    @IBOutlet weak var addButton: UIBarButtonItem!
+    
+    let realm = try! Realm()
+    var toDoItems: Results<TaskModel>?
+    var itemColor: String?
+    
     var itemCategory: Category? {
         didSet {
             loadItems()
         }
     }
     
-    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
-
     override func viewDidLoad() {
         super.viewDidLoad()
-
-        // Uncomment the following line to preserve selection between presentations
-        // self.clearsSelectionOnViewWillAppear = false
-
-        // Uncomment the following line to display an Edit button in the navigation bar for this view controller.
-        // self.navigationItem.rightBarButtonItem = self.editButtonItem
         
         searchBar.delegate = self
         print(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask))
 
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        title = self.itemCategory?.name
+        guard let navBarColor = HexColor(itemColor ?? "1D9BF6") else { fatalError() }
+        searchBar.barTintColor = navBarColor
+        addButton.tintColor = ContrastColorOf(navBarColor, returnFlat: true)
+        tableView.backgroundColor = navBarColor
+        setNavBarColor(withColor: navBarColor)
+    }
+    
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        guard let originalColor = HexColor("1D9BF6") else { fatalError() }
+        setNavBarColor(withColor: originalColor)
+    }
+    
+    func setNavBarColor(withColor navBarColor: UIColor) {
+        guard let navBar = navigationController?.navigationBar else {
+            fatalError("Nav controller does not exist")
+        }
+        navBar.barTintColor = navBarColor
+        navBar.tintColor = ContrastColorOf(navBarColor, returnFlat: true)
+        navBar.largeTitleTextAttributes = [NSAttributedStringKey.foregroundColor : ContrastColorOf(navBarColor, returnFlat: true)]
     }
 
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
         // Dispose of any resources that can be recreated.
     }
-
-    // MARK: - Table view data source
-
-    override func numberOfSections(in tableView: UITableView) -> Int {
-        // #warning Incomplete implementation, return the number of sections
-        return 1
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        // #warning Incomplete implementation, return the number of rows
-        return itemArray.count
-    }
-
+    
     //MARK:- Add new item to list
     @IBAction func addButtonPressed(_ sender: Any) {
         
@@ -60,16 +71,21 @@ class ToDoViewController: UITableViewController {
         let alert = UIAlertController(title: "Add New Item", message: "", preferredStyle: .alert)
         let action = UIAlertAction(title: "Add Item", style: .default) { (action) in
             print(textField.text ?? "")
-            if let text = textField.text {
-                let item = TaskModel(context: self.context)
-                item.title = text
-                item.done = false
-                item.parentCategory = self.itemCategory
-                self.itemArray.append(item)
-                self.saveData()
-
+            if let currentCategory = self.itemCategory {
+                do {
+                    try self.realm.write {
+                        let item = TaskModel()
+                        item.title = textField.text!
+                        item.dateCreated = Date()
+                        currentCategory.items.append(item)
+                    }
+                } catch {
+                    print("Realm data saving error \(error)")
+                }
             }
+            self.tableView.reloadData()
         }
+        
         alert.addTextField { (alertTextField) in
             alertTextField.placeholder = "Create new item"
             textField = alertTextField
@@ -78,41 +94,38 @@ class ToDoViewController: UITableViewController {
         present(alert, animated: true, completion: nil)
     }
     
-    func saveData() {
-        do {
-            try context.save()
-        } catch {
-            print("Code data saving error \(error)")
-        }
-        self.tableView.reloadData()
+    func loadItems() {
+        toDoItems = itemCategory?.items.sorted(byKeyPath: "dateCreated", ascending: true)
+        itemColor = itemCategory?.hexColor
+        tableView.reloadData()
     }
     
-    func loadItems(with request: NSFetchRequest<TaskModel> = TaskModel.fetchRequest(), and predicate: NSPredicate? = nil) {
-        let categoryPredicate = NSPredicate(format: "parentCategory.name MATCHES %@", itemCategory!.name!)
-        if let additionalPredicate = predicate {
-            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [categoryPredicate, additionalPredicate])
-        } else{
-            request.predicate = categoryPredicate
-        }
-        
-        do {
-            itemArray = try context.fetch(request)
-        } catch {
-            print("Error loading data \(error)")
-        }
-        self.tableView.reloadData()
+    // MARK: - Table view data source
+    
+    override func numberOfSections(in tableView: UITableView) -> Int {
+        // #warning Incomplete implementation, return the number of sections
+        return 1
     }
     
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        // #warning Incomplete implementation, return the number of rows
+        return toDoItems?.count ?? 1
+    }
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "todoItemCell", for: indexPath)
+        let cell = super.tableView(tableView, cellForRowAt: indexPath)
 
         // Configure the cell...
-        let item: TaskModel = itemArray[indexPath.row]
-        
-        cell.textLabel?.text = item.title
-        
-        cell.accessoryType = item.done ? .checkmark : .none
+        if let item = toDoItems?[indexPath.row] {
+            cell.textLabel?.text = item.title
+            cell.accessoryType = item.done ? .checkmark : .none
+            if let color = HexColor(itemColor ?? "1D9BF6")?.darken(byPercentage: CGFloat(indexPath.row)/CGFloat(toDoItems!.count)) {
+                cell.backgroundColor = color
+                cell.textLabel?.textColor = ContrastColorOf(color, returnFlat: true)
+            }
+        } else {
+            cell.textLabel?.text = "No items added yet"
+        }
         
         return cell
     }
@@ -121,59 +134,31 @@ class ToDoViewController: UITableViewController {
 
         tableView.deselectRow(at: indexPath, animated: true)
 
-        itemArray[indexPath.row].done = !itemArray[indexPath.row].done
+            if let item = toDoItems?[indexPath.row] {
+                do {
+                    try self.realm.write {
+                        item.done = !item.done
+                        //realm.delete(item)
+                    }
+                } catch {
+                    print("realm data saving error \(error)")
+                }
+            }
+        tableView.reloadData()
         
-//        context.delete(itemArray[indexPath.row])
-//        itemArray.remove(at: indexPath.row)
-
-        saveData()
-        
     }
-
-    /*
-    // Override to support conditional editing of the table view.
-    override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-        // Return false if you do not want the specified item to be editable.
-        return true
+    
+    override func updateModel(at indexPath: IndexPath){
+        if let item = self.toDoItems?[indexPath.row] {
+            do {
+                try self.realm.write {
+                    self.realm.delete(item)
+                }
+            } catch {
+                print("realm data saving error \(error)")
+            }
+        }
     }
-    */
-
-    /*
-    // Override to support editing the table view.
-    override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCellEditingStyle, forRowAt indexPath: IndexPath) {
-        if editingStyle == .delete {
-            // Delete the row from the data source
-            tableView.deleteRows(at: [indexPath], with: .fade)
-        } else if editingStyle == .insert {
-            // Create a new instance of the appropriate class, insert it into the array, and add a new row to the table view
-        }    
-    }
-    */
-
-    /*
-    // Override to support rearranging the table view.
-    override func tableView(_ tableView: UITableView, moveRowAt fromIndexPath: IndexPath, to: IndexPath) {
-
-    }
-    */
-
-    /*
-    // Override to support conditional rearranging of the table view.
-    override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-        // Return false if you do not want the item to be re-orderable.
-        return true
-    }
-    */
-
-    /*
-    // MARK: - Navigation
-
-    // In a storyboard-based application, you will often want to do a little preparation before navigation
-    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
-        // Get the new view controller using segue.destinationViewController.
-        // Pass the selected object to the new view controller.
-    }
-    */
 
 }
 
@@ -184,12 +169,10 @@ extension ToDoViewController: UISearchBarDelegate {
         DispatchQueue.main.async {
             searchBar.resignFirstResponder()
         }
-        let request : NSFetchRequest<TaskModel> = TaskModel.fetchRequest()
-        let predicate = NSPredicate(format: "title CONTAINS[cd] %@", searchBar.text!)
-        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
-        loadItems(with: request, and: predicate)
+        toDoItems = toDoItems?.filter("title CONTAINS[cd] %@", searchBar.text!).sorted(byKeyPath: "dateCreated", ascending: true)
+        tableView.reloadData()
     }
-    
+
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchText.count == 0 {
             loadItems()

@@ -7,19 +7,19 @@
 //
 
 import UIKit
-import CoreData
+import RealmSwift
+import ChameleonFramework
 
-class CategoryTableViewController: UITableViewController {
+class CategoryTableViewController: SwipeTableViewController {
     
-    var categoryArray = [Category]()
-    var selectedCategory: Category? = nil
+    let realm = try! Realm()
     
-    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
-
+    var categories : Results<Category>?
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         loadCategories()
-
+        tableView.backgroundColor = HexColor("1D9BF6")
     }
 
     override func didReceiveMemoryWarning() {
@@ -27,18 +27,19 @@ class CategoryTableViewController: UITableViewController {
         // Dispose of any resources that can be recreated.
     }
     
+    // MARK: - Add category
     @IBAction func buttonPressed(_ sender: Any) {
         var textField =  UITextField()
         let alert = UIAlertController(title: "Add Category", message: "", preferredStyle: .alert)
         let okAction = UIAlertAction(title: "OK", style: .default) { (action) in
             if let text = textField.text {
-                let category = Category(context: self.context)
+                let category = Category()
                 category.name = text
-                self.categoryArray.append(category)
-                self.saveData()
+                category.hexColor = UIColor.randomFlat.hexValue()
+                self.save(category)
             }
         }
-        let cancelAction = UIAlertAction(title: "Cancel", style: .default) {(action) in ()}
+        let cancelAction = UIAlertAction(title: "Cancel", style: .cancel) {(action) in ()}
         alert.addTextField { (alertTextField) in
             alertTextField.placeholder = "Create new category"
             textField = alertTextField
@@ -48,21 +49,19 @@ class CategoryTableViewController: UITableViewController {
         present(alert, animated: true, completion: nil)
     }
     
-    func saveData(){
+    func save(_ category: Category){
         do {
-            try context.save()
+            try realm.write {
+                 realm.add(category)
+            }
         } catch {
-            print("Code data saving error \(error)")
+            print("Realm data saving error \(error)")
         }
         self.tableView.reloadData()
     }
     
-    func loadCategories(with request: NSFetchRequest<Category> = Category.fetchRequest()){
-        do {
-            categoryArray = try context.fetch(request)
-        } catch {
-            print("Code data saving error \(error)")
-        }
+    func loadCategories(){
+        categories = realm.objects(Category.self)
         self.tableView.reloadData()
     }
 
@@ -75,24 +74,48 @@ class CategoryTableViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         // #warning Incomplete implementation, return the number of rows
-        return categoryArray.count
+        return categories?.count ?? 1
     }
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "categoryCell", for: indexPath)
-        cell.textLabel?.text = categoryArray[indexPath.row].name
+        let cell = super.tableView(tableView, cellForRowAt: indexPath)
+        if let category = categories?[indexPath.row] {
+            cell.textLabel?.text = category.name
+            guard let color = HexColor(category.hexColor) else { fatalError() }
+            cell.backgroundColor = color
+            cell.textLabel?.textColor = ContrastColorOf(color, returnFlat: true)
+        } else {
+            cell.textLabel?.text = "No Categories added yet"
+            cell.backgroundColor = HexColor("1D9BF6")
+        }
+        cell.textLabel?.font = UIFont.boldSystemFont(ofSize: 24.0)
         return cell
     }
     
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        selectedCategory = categoryArray[indexPath.row]
-        tableView.deselectRow(at: indexPath, animated: true)
+        //tableView.deselectRow(at: indexPath, animated: true)
         performSegue(withIdentifier: "goToItem", sender: self)
     }
     
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
         let toDoVc = segue.destination as! ToDoViewController
-        toDoVc.itemCategory = selectedCategory!
+        if let indexPath = tableView.indexPathForSelectedRow {
+            toDoVc.itemCategory = categories?[indexPath.row]
+        }
+    }
+    
+    override func updateModel(at indexPath: IndexPath){
+        if let item = self.categories?[indexPath.row] {
+            do {
+                try self.realm.write {
+                    self.realm.delete(item)
+                }
+            } catch {
+                print("realm data saving error \(error)")
+            }
+        }
     }
 
 }
+
+
