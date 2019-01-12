@@ -7,8 +7,10 @@
 //
 
 import UIKit
+import UserNotifications
 import RealmSwift
 import ChameleonFramework
+import ProgressHUD
 
 class ToDoViewController: SwipeTableViewController {
 
@@ -18,12 +20,16 @@ class ToDoViewController: SwipeTableViewController {
     let realm = try! Realm()
     var toDoItems: Results<TaskModel>?
     var itemColor: String?
-    
     var itemCategory: Category? {
         didSet {
             loadItems()
         }
     }
+    var reorder: Bool = false
+    var mode: String = "Add"
+    var rowEdit: Int = 0
+    
+    var defaults = UserDefaults.standard
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -39,8 +45,9 @@ class ToDoViewController: SwipeTableViewController {
         guard let navBarColor = HexColor(itemColor ?? "1D9BF6") else { fatalError() }
         searchBar.barTintColor = navBarColor
         addButton.tintColor = ContrastColorOf(navBarColor, returnFlat: true)
-        tableView.backgroundColor = navBarColor
+        //tableView.backgroundColor = navBarColor
         setNavBarColor(withColor: navBarColor)
+        tableView.reloadData()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -51,7 +58,8 @@ class ToDoViewController: SwipeTableViewController {
     
     func setNavBarColor(withColor navBarColor: UIColor) {
         guard let navBar = navigationController?.navigationBar else {
-            fatalError("Nav controller does not exist")
+            //fatalError("Nav controller does not exist")
+            return
         }
         navBar.barTintColor = navBarColor
         navBar.tintColor = ContrastColorOf(navBarColor, returnFlat: true)
@@ -66,36 +74,29 @@ class ToDoViewController: SwipeTableViewController {
     //MARK:- Add new item to list
     @IBAction func addButtonPressed(_ sender: Any) {
         
-        var textField = UITextField()
-        
-        let alert = UIAlertController(title: "Add New Item", message: "", preferredStyle: .alert)
-        let action = UIAlertAction(title: "Add Item", style: .default) { (action) in
-            print(textField.text ?? "")
-            if let currentCategory = self.itemCategory {
-                do {
-                    try self.realm.write {
-                        let item = TaskModel()
-                        item.title = textField.text!
-                        item.dateCreated = Date()
-                        currentCategory.items.append(item)
-                    }
-                } catch {
-                    print("Realm data saving error \(error)")
-                }
-            }
-            self.tableView.reloadData()
+        let alert = UIAlertController(title: "Options", message: "", preferredStyle: .actionSheet)
+        let addAction = UIAlertAction(title: "Add Item", style: .default) { (action) in
+            self.mode = "Add"
+            self.performSegue(withIdentifier: "addValue", sender: self)
         }
-        
-        alert.addTextField { (alertTextField) in
-            alertTextField.placeholder = "Create new item"
-            textField = alertTextField
+        let reorderAction = UIAlertAction(title: self.reorder ? "Reorder done" : "Reorder", style: .default) {(action) in
+            self.reorder = !self.reorder
+            self.tableView.setEditing(self.reorder, animated: false)
         }
-        alert.addAction(action)
+        let logoutAction = UIAlertAction(title: "Logout", style: .destructive) {(action) in
+            self.navigationController?.popToRootViewController(animated: true)
+        }
+        let cancelAction = UIAlertAction(title: "Cancel", style: .cancel) {(action) in ()}
+        
+        alert.addAction(addAction)
+        alert.addAction(reorderAction)
+        alert.addAction(logoutAction)
+        alert.addAction(cancelAction)
         present(alert, animated: true, completion: nil)
     }
     
     func loadItems() {
-        toDoItems = itemCategory?.items.sorted(byKeyPath: "dateCreated", ascending: true)
+        toDoItems = itemCategory?.items.sorted(byKeyPath: "priority", ascending: true)
         itemColor = itemCategory?.hexColor
         tableView.reloadData()
     }
@@ -117,11 +118,16 @@ class ToDoViewController: SwipeTableViewController {
 
         // Configure the cell...
         if let item = toDoItems?[indexPath.row] {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "MMM dd,yyyy"
             cell.textLabel?.text = item.title
+            cell.textLabel?.numberOfLines = 5
+            cell.detailTextLabel?.text = "\(item.done ? "Completed" : "Created") on : \(dateFormatter.string(from: item.done ? item.dateCompleted! : item.dateCreated!))"
             cell.accessoryType = item.done ? .checkmark : .none
             if let color = HexColor(itemColor ?? "1D9BF6")?.darken(byPercentage: CGFloat(indexPath.row)/CGFloat(toDoItems!.count)) {
                 cell.backgroundColor = color
                 cell.textLabel?.textColor = ContrastColorOf(color, returnFlat: true)
+                cell.detailTextLabel?.textColor = ContrastColorOf(color, returnFlat: true)
             }
         } else {
             cell.textLabel?.text = "No items added yet"
@@ -138,10 +144,11 @@ class ToDoViewController: SwipeTableViewController {
                 do {
                     try self.realm.write {
                         item.done = !item.done
+                        item.dateCompleted = Date()
                         //realm.delete(item)
                     }
                 } catch {
-                    print("realm data saving error \(error)")
+                    ProgressHUD.showError("realm data saving error \(error)")
                 }
             }
         tableView.reloadData()
@@ -153,9 +160,44 @@ class ToDoViewController: SwipeTableViewController {
             do {
                 try self.realm.write {
                     self.realm.delete(item)
+                    DispatchQueue.main.async {
+                        self.tableView.reloadData()
+                    }                }
+            } catch {
+                ProgressHUD.showError("realm data saving error \(error)")
+            }
+        }
+    }
+    
+    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
+        if segue.identifier == "addValue" {
+            let addVc = segue.destination as! AddViewController
+            addVc.titleLabel = itemCategory?.name
+            addVc.headerLabel = mode + " Item"
+            addVc.itemColor = itemColor
+            addVc.mode = mode
+            addVc.delegate = self
+            addVc.preVal = mode == "Update" ? toDoItems?[rowEdit].title : ""
+        }
+    }
+    
+    override func updateModelOnEdit(at indexPath: IndexPath){
+        print("update Model OnEdit from child")
+        mode = "Update"
+        rowEdit = indexPath.row
+        performSegue(withIdentifier: "addValue", sender: self)
+    }
+    
+    override func updateModelOnReorder(at : Int, withObjectAt: Int){
+        print("update Model OnReorder  from child")
+        if let itemAt = toDoItems?[at], let itemWith = toDoItems?[withObjectAt] {
+            do {
+                try realm.write {
+                    itemAt.priority = withObjectAt + 1
+                    itemWith.priority = at + 1
                 }
             } catch {
-                print("realm data saving error \(error)")
+                ProgressHUD.showError("realm data saving error \(error)")
             }
         }
     }
@@ -169,8 +211,10 @@ extension ToDoViewController: UISearchBarDelegate {
         DispatchQueue.main.async {
             searchBar.resignFirstResponder()
         }
-        toDoItems = toDoItems?.filter("title CONTAINS[cd] %@", searchBar.text!).sorted(byKeyPath: "dateCreated", ascending: true)
-        tableView.reloadData()
+        if searchBar.text?.count != 0 {
+            toDoItems = toDoItems?.filter("title CONTAINS[cd] %@", searchBar.text!).sorted(byKeyPath: "dateCreated", ascending: true)
+            tableView.reloadData()
+        }
     }
 
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
@@ -180,6 +224,68 @@ extension ToDoViewController: UISearchBarDelegate {
                 searchBar.resignFirstResponder()
             }
         }
+    }
+}
+
+extension ToDoViewController: addDelegate {
+    func addOnClick(text: String) {
+        if mode == "Add" {
+            if let currentCategory = self.itemCategory {
+                do {
+                    try self.realm.write {
+                        let item = TaskModel()
+                        item.title = text
+                        item.priority = currentCategory.items.count + 1
+                        item.dateCreated = Date()
+                        currentCategory.items.append(item)
+                        self.setNotification(for: text)
+                    }
+                } catch {
+                    ProgressHUD.showError("Realm data saving error \(error)")
+                }
+            }
+        } else {
+            if let item = toDoItems?[rowEdit] {
+                do {
+                    try self.realm.write {
+                        item.title = text
+                    }
+                } catch {
+                    ProgressHUD.showError("realm data saving error \(error)")
+                }
+            }
+        }
+        
+        self.tableView.reloadData()
+    }
+    
+    //MARK: - Button functions
+    func setNotification(for item: String) {
+        guard let savedName = defaults.object(forKey: "name") as? String else {
+            return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = NSString.localizedUserNotificationString(forKey: "Hi \(savedName)", arguments: nil)
+        content.body = NSString.localizedUserNotificationString(forKey: "If you have done item \"\(item)\", then you can update your ToDo List!", arguments: nil)
+        content.sound = UNNotificationSound.default()
+        content.categoryIdentifier = "notify-test"
+        content.badge = 5
+        content.categoryIdentifier = "Message"
+        content.subtitle = "Is \"\(item)\" done?"
+        content.userInfo = ["item":"\(item)"];
+        
+        var dateComponent = DateComponents()
+        dateComponent.hour = 21
+        dateComponent.minute = 00
+        print(dateComponent)
+        //let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponent, repeats: false)
+        //let trigger = UNTimeIntervalNotificationTrigger.init(timeInterval: 15, repeats: false)
+        let trigger = UNCalendarNotificationTrigger.init(dateMatching: dateComponent, repeats: false)
+        let request = UNNotificationRequest.init(identifier: "notify-test", content: content, trigger: trigger)
+        
+        let center = UNUserNotificationCenter.current()
+        center.add(request)
+        
     }
 }
 

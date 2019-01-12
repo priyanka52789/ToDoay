@@ -2,6 +2,7 @@ PODS:
   - ChameleonFramework/Default (2.1.0)
   - ChameleonFramework/Swift (2.1.0):
     - ChameleonFramework/Default
+  - ProgressHUD (2.51)
   - Realm (3.0.2):
     - Realm/Headers (= 3.0.2)
   - Realm/Headers (3.0.2)
@@ -11,6 +12,7 @@ PODS:
 
 DEPENDENCIES:
   - ChameleonFramework/Swift (from `https://github.com/ViccAlexander/Chameleon.git`)
+  - ProgressHUD
   - RealmSwift
   - SwipeCellKit
 
@@ -25,10 +27,11 @@ CHECKOUT OPTIONS:
 
 SPEC CHECKSUMS:
   ChameleonFramework: d21a3cc247abfe5e37609a283a8238b03575cf64
+  ProgressHUD: 54b4c2fa202bf3da7dddc1c698ae4e6376333bd9
   Realm: 6f23fd1f178a09342eac21bfa7c2bf4312a7a180
   RealmSwift: 695393add1b8f9d5fa75dd16e6355cf3935f71e2
   SwipeCellKit: 349c61ffde96ac3ae51c2691a03e421b5b29ee98
 
-PODFILE CHECKSUM: 2891e6918828e27c0373fade85c64037ff26acad
+PODFILE CHECKSUM: 831ca5c25e57b22a59f4944709ac9e6d2615eb61
 
 COCOAPODS: 1.3.1
